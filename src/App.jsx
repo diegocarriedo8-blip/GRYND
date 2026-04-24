@@ -671,15 +671,33 @@ function Dashboard({authUser,profile,tasks,setTasks,onNav,onTaskToggle}){
 }
 
 // ─── CALENDAR ──────────────────────────────────────────────────────
-function CalView({profile,tasks}){
+function CalView({profile,setProfile,authUser,tasks}){
   const [dayIdx,setDayIdx]=useState(()=>{const d=new Date().getDay();return d===0?6:d-1})
+  const [editBlock,setEditBlock]=useState(null)
+  const [editDraft,setEditDraft]=useState(null)
+  const [saving,setSaving]=useState(false)
   const day=DAYS[dayIdx]
   const routine=profile?.routine||{}
   const blocks=routine[day]||[]
   const urgHigh=tasks.filter(t=>!t.done&&calcUrgency(t)==='high')
   const INT_COLS_LOC=INT_COLS
+  const openEdit=(b,idx)=>{setEditBlock({block:b,day,idx});setEditDraft({start:b.start,end:b.end,intensity:b.intensity})}
+  const saveBlockEdit=async()=>{
+    if(!editBlock)return
+    setSaving(true)
+    const newRoutine={...profile.routine}
+    const dayBlocks=[...(newRoutine[editBlock.day]||[])]
+    dayBlocks[editBlock.idx]={...editBlock.block,...editDraft}
+    dayBlocks.sort((a,b)=>tMin(a.start)-tMin(b.start))
+    newRoutine[editBlock.day]=dayBlocks
+    const newProfile={...profile,routine:newRoutine}
+    setProfile(newProfile)
+    if(authUser)await saveProfile(authUser.id,newProfile)
+    setEditBlock(null)
+    setSaving(false)
+  }
   return(
-    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
       <div style={{padding:'4px 18px 11px',flexShrink:0}}>
         <div className="hd up" style={{fontSize:26,color:K.ink,marginBottom:13}}>Schedule</div>
         <div style={{display:'flex',gap:4}}>
@@ -702,13 +720,14 @@ function CalView({profile,tasks}){
           blocks.map((b,i)=>{const col=b.color||K.inkM;return(
             <div key={b.id||i} className="up" style={{animationDelay:`${i*0.04}s`,display:'flex',gap:10,marginBottom:5,alignItems:'flex-start'}}>
               <div style={{width:34,flexShrink:0,paddingTop:9}}><div style={{fontSize:10,color:K.inkM,textAlign:'right'}}>{b.start}</div></div>
-              <div className="cblk" style={{flex:1,borderLeftColor:col,background:`${col}0D`}}>
+              <div className="cblk" style={{flex:1,borderLeftColor:col,background:`${col}0D`,cursor:'pointer'}} onClick={()=>openEdit(b,i)}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                   <div style={{flex:1,marginRight:8}}><div style={{fontSize:12,fontWeight:600,color:K.ink,marginBottom:1,lineHeight:1.3}}>{b.label}</div><div style={{fontSize:10,color:K.inkM}}>{b.start} – {b.end}</div></div>
                   <div style={{display:'flex',gap:5,alignItems:'center',flexShrink:0}}>
                     {b.isStudy&&urgHigh.length>0&&<span className="ubadge" style={{background:K.redBg,color:K.red,border:`1px solid ${K.redB}`}}>URGENT</span>}
                     {b.intensity&&<span className="chip" style={{background:INT_COLS_LOC[b.intensity]?.bg||K.panel,color:INT_COLS_LOC[b.intensity]?.tx||K.inkM}}>{b.intensity}</span>}
                     <span style={{fontSize:9,fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:col}}>{b.type}</span>
+                    <Ico d={IC.edt} s={11} c={col} w={1.5}/>
                   </div>
                 </div>
               </div>
@@ -719,6 +738,25 @@ function CalView({profile,tasks}){
           <Ico d={IC.pls} s={13} c={K.inkM}/> Add custom block
         </div>
       </div>
+      {editBlock&&(
+        <div style={{position:'absolute',inset:0,background:'rgba(6,7,8,0.85)',zIndex:200,display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={e=>{if(e.target===e.currentTarget)setEditBlock(null)}}>
+          <div className="sc" style={{background:K.panel,borderRadius:'18px 18px 0 0',padding:'20px 20px 38px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <div className="hd" style={{fontSize:19,color:K.ink}}>Edit Block</div>
+              <div onClick={()=>setEditBlock(null)} style={{cursor:'pointer',padding:6,borderRadius:8,background:K.card}}><Ico d={IC.del} s={13} c={K.inkM}/></div>
+            </div>
+            <div style={{fontSize:12,color:K.inkM,marginBottom:14,padding:'8px 11px',background:K.card,borderRadius:9,border:`1px solid ${K.border}`}}>{editBlock.block.label} · {editBlock.day}</div>
+            <div style={{display:'flex',gap:8,alignItems:'flex-end',marginBottom:12}}>
+              <div style={{flex:1}}><span className="ilbl">Start</span><input className="inp" type="time" value={editDraft?.start||''} onChange={e=>setEditDraft(d=>({...d,start:e.target.value}))}/></div>
+              <div style={{flex:1}}><span className="ilbl">End</span><input className="inp" type="time" value={editDraft?.end||''} onChange={e=>setEditDraft(d=>({...d,end:e.target.value}))}/></div>
+            </div>
+            {(editBlock.block.type==='training'||editBlock.block.type==='cardio')&&(
+              <><span className="ilbl" style={{marginBottom:8,display:'block'}}>Intensity</span><IntBtn val={editDraft?.intensity||'Medium'} onChange={v=>setEditDraft(d=>({...d,intensity:v}))}/></>
+            )}
+            <button className="btn bLime" onClick={saveBlockEdit} disabled={saving} style={{marginTop:16}}>{saving?<Spinner/>:'Save changes'}</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -875,9 +913,9 @@ function HomeworkView(){
         {['Give me a hint','Next step','Show full solution','Explain differently'].map(q=><button key={q} onClick={()=>send(q)} style={{flexShrink:0,background:K.card,border:`1px solid ${K.border}`,color:K.inkM,padding:'5px 10px',borderRadius:999,fontSize:10,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'DM Sans'}}>{q}</button>)}
       </div>
       <div style={{padding:'7px 16px 24px',flexShrink:0,display:'flex',gap:8,alignItems:'center',borderTop:`1px solid ${K.border}`}}>
-        <input type="file" ref={fileRef} accept="image/*" onChange={handleImg} style={{display:'none'}}/>
-        <div onClick={()=>fileRef.current?.click()} style={{width:40,height:40,background:K.card,border:`1px solid ${K.border}`,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0}}><Ico d={IC.img} s={16} c={K.inkM}/></div>
-        <input className="inp" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Type question or upload photo…" style={{borderRadius:999,padding:'10px 15px',flex:1}}/>
+        <input type="file" id="hw-file-inp" accept="image/*" onChange={handleImg} style={{display:'none'}}/>
+        <label htmlFor="hw-file-inp" style={{width:40,height:40,background:K.blueBg,border:`1px solid ${K.blueB}`,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0}}><Ico d={IC.img} s={16} c={K.blue}/></label>
+        <input type="text" inputMode="text" enterKeyHint="send" className="inp" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Type question or upload photo…" style={{borderRadius:999,padding:'10px 15px',flex:1}}/>
         <button onClick={()=>send()} style={{width:40,height:40,borderRadius:'50%',background:K.lime,border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Ico d={IC.snd} s={14} c={K.bg}/></button>
       </div>
     </div>
@@ -885,7 +923,7 @@ function HomeworkView(){
 }
 
 // ─── COACH ─────────────────────────────────────────────────────────
-function CoachView({authUser,profile,tasks}){
+function CoachView({authUser,profile,setProfile,tasks}){
   const DAY_NAMES=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
   const todayName=DAY_NAMES[new Date().getDay()]
   const routine=profile?.routine||{}
@@ -897,22 +935,43 @@ function CoachView({authUser,profile,tasks}){
   const trainDesc=trainToday.length>0?trainToday.map(b=>`${b.sport||b.label} at ${b.start} (${b.intensity})`).join(', '):'no training today'
   const streak=calcStreak(tasks)
   const name=(profile?.name||authUser.email.split('@')[0]).split(' ')[0]
-  const SYS=`You are GRYND, an elite AI performance coach for student-athletes. Direct, tactical, data-driven.\nUser: ${name}\nToday: ${todayName} | Energy: ${energy}/100 (${energy>=70?'high':energy>=50?'medium':'low'})\nSchedule: ${todaySched}\nTraining: ${trainDesc} | Urgent tasks: ${urgCount} | Streak: ${streak} days\nRules: Max 3 short sentences. Reference actual schedule and energy. One emoji max. You ARE GRYND — never say Claude or Anthropic.`
+  const allTrainSess=(profile?.training_sessions||[]).map(s=>`${s.day}: ${s.sport||'Training'} ${s.start}-${s.end} (${s.intensity})`).join('; ')||'none'
+  const allCardioSess=(profile?.cardio_sessions||[]).map(s=>`${s.day}: ${s.type||'Cardio'} ${s.start}-${s.end} (${s.intensity})`).join('; ')||'none'
+  const SYS=`You are GRYND, an elite AI performance coach for student-athletes. Direct, tactical, data-driven.\nUser: ${name}\nToday: ${todayName} | Energy: ${energy}/100 (${energy>=70?'high':energy>=50?'medium':'low'})\nSchedule: ${todaySched}\nTraining today: ${trainDesc} | Urgent tasks: ${urgCount} | Streak: ${streak} days\nAll training sessions: ${allTrainSess}\nAll cardio sessions: ${allCardioSess}\nSCHEDULE MOVES: When the user asks to move a session to another day, put this JSON tag on the VERY FIRST LINE of your reply: <<<ACTION{"action":"move_activity","from":"SourceDay","to":"TargetDay","session_type":"training"}>>> (use "cardio" if it's a cardio session). Use exact full day names (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday). Then confirm what you moved.\nRules: Max 3 short sentences. Reference actual schedule and energy. One emoji max. You ARE GRYND — never say Claude or Anthropic.`
   const initMsg=`${name}, energy is ${energy} today. ${trainToday.length>0?`${trainDesc} — plan study around it.`:'No training — good day for focused work.'} ${urgCount>0?`${urgCount} urgent task${urgCount>1?'s':''}—tackle the hardest one now.`:'No urgent tasks—stay ahead.'} 💪`
   const [msgs,setMsgs]=useState([{role:'ai',text:initMsg}])
   const [input,setInput]=useState('')
   const [busy,setBusy]=useState(false)
   const ref=useRef(null)
-  const QUICK=['When should I study today?','I\'m exhausted','Optimize my week','What\'s my priority?']
+  const QUICK=['When should I study today?','I\'m exhausted','Move a session','What\'s my priority?']
+  const execMove=useCallback((action,prof)=>{
+    const{from,to,session_type}=action
+    if(!DAYS.includes(from)||!DAYS.includes(to))return prof
+    const updated={...prof}
+    if(session_type==='training'){
+      updated.training_sessions=(prof.training_sessions||[]).map(s=>s.day===from?{...s,day:to}:s)
+    }else{
+      updated.cardio_sessions=(prof.cardio_sessions||[]).map(s=>s.day===from?{...s,day:to}:s)
+    }
+    updated.routine=buildRoutine({schoolStart:updated.school_start,schoolEnd:updated.school_end,trainingSessions:updated.training_sessions||[],cardioSessions:updated.cardio_sessions||[],extraSessions:updated.extra_sessions||[]})
+    return updated
+  },[])
   const send=useCallback(async(text)=>{
     const q=(text||input).trim();if(!q||busy)return
     setInput('');const next=[...msgs,{role:'user',text:q}];setMsgs(next);setBusy(true)
     try{
       const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:SYS,messages:next.map(m=>({role:m.role==='ai'?'assistant':'user',content:m.text}))})})
-      const d=await res.json();setMsgs(m=>[...m,{role:'ai',text:d.content?.[0]?.text||'Stay on plan.'}])
+      const d=await res.json()
+      const raw=d.content?.[0]?.text||'Stay on plan.'
+      const actionMatch=raw.match(/<<<ACTION(\{.*?\})>>>/)
+      if(actionMatch&&setProfile){
+        try{const act=JSON.parse(actionMatch[1]);const np=execMove(act,profile);setProfile(np);if(authUser)await saveProfile(authUser.id,np)}catch(e){console.error('action parse error',e)}
+      }
+      const display=raw.replace(/<<<ACTION\{.*?\}>>>/,'').trim()
+      setMsgs(m=>[...m,{role:'ai',text:display||'Done.'}])
     }catch{setMsgs(m=>[...m,{role:'ai',text:'Network issue. Trust your plan.'}])}
     setBusy(false)
-  },[msgs,input,busy])
+  },[msgs,input,busy,profile,setProfile,authUser,execMove,SYS])
   useEffect(()=>{setTimeout(()=>ref.current?.scrollIntoView({behavior:'smooth'}),60)},[msgs,busy])
   return(
     <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
@@ -936,7 +995,7 @@ function CoachView({authUser,profile,tasks}){
         {QUICK.map(q=><button key={q} onClick={()=>send(q)} style={{flexShrink:0,background:K.card,border:`1px solid ${K.border}`,color:K.inkM,padding:'5px 10px',borderRadius:999,fontSize:10,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'DM Sans'}}>{q}</button>)}
       </div>
       <div style={{padding:'7px 16px 24px',flexShrink:0,display:'flex',gap:8,alignItems:'center',borderTop:`1px solid ${K.border}`}}>
-        <input className="inp" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Ask your coach…" style={{borderRadius:999,padding:'10px 15px'}}/>
+        <input type="text" inputMode="text" enterKeyHint="send" className="inp" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Ask your coach…" style={{borderRadius:999,padding:'10px 15px'}}/>
         <button onClick={()=>send()} style={{width:40,height:40,borderRadius:'50%',background:K.lime,border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Ico d={IC.snd} s={14} c={K.bg}/></button>
       </div>
     </div>
@@ -1036,10 +1095,10 @@ export default function App(){
             </div>
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
               {tab==='home'    &&<Dashboard authUser={authUser} profile={profile} tasks={tasks} setTasks={setTasks} onNav={setTab} onTaskToggle={handleTaskToggle}/>}
-              {tab==='calendar'&&<CalView profile={profile} tasks={tasks}/>}
+              {tab==='calendar'&&<CalView profile={profile} setProfile={setProfile} authUser={authUser} tasks={tasks}/>}
               {tab==='tasks'   &&<TasksView authUser={authUser} tasks={tasks} setTasks={setTasks}/>}
               {tab==='homework'&&<HomeworkView/>}
-              {tab==='coach'   &&<CoachView authUser={authUser} profile={profile} tasks={tasks}/>}
+              {tab==='coach'   &&<CoachView authUser={authUser} profile={profile} setProfile={setProfile} tasks={tasks}/>}
             </div>
             <div id="nav">
               {NAV.map(n=>(
